@@ -81,22 +81,26 @@ class TextEncoder(nn.Module):
 
 
 class PosteriorEncoder(nn.Module):
+    """
+    变分后验编码器
+    将真实 mel 频谱 → 编码成 (μ, logσ) → 再通过 reparameterization trick 得到 latent 变量 z
+    """
     def __init__(
         self,
         in_channels,        # 输入通道数（mel 频谱维度）
         out_channels,       # 输出通道数（latent 变量维度）
-        hidden_channels,    # 中间通道数
+        hidden_channels,    # WN 网络的中间通道数
         kernel_size,        # WN 卷积核大小
         dilation_rate,      # WN 膨胀率
-        n_layers,           # WN 层数
-        gin_channels=0      # 条件向量（如情感 embedding）通道数
+        n_layers,           # WN 卷积层数
+        gin_channels=0      # 条件向量（如情感 embedding）通道数，若无则为 0
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.hidden_channels = hidden_channels
 
-        # 1x1 conv，初步投影到隐藏空间
+        # 初始 1x1 Conv：维度对齐   把原始输入从 mel 维度映射到 hidden 维度，方便接后续残差卷积网络
         self.pre = nn.Conv1d(in_channels, hidden_channels, kernel_size=1)
 
         # Wavenet 样式的残差卷积网络（来自 Glow/VITS 中 WN）
@@ -109,13 +113,14 @@ class PosteriorEncoder(nn.Module):
         )
 
         # 输出 μ 和 logσ（双倍输出通道）
+        # 输出通道 = 2 × out_channels，对应变分分布的两个参数：μ：均值  logσ：对数标准差
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, kernel_size=1)
 
     def forward(self, x, x_lengths, g=None):
         """
         Args:
             x: [B, mel_dim, T]，GT mel 频谱
-            x_lengths: [B]，每个样本的有效长度
+            x_lengths: [B]，每个样本的有效长度（用于 mask）
             g: 条件向量 [B, gin_channels, T]，如情感 embedding
         Returns:
             z: 采样得到的 latent 表征
@@ -123,19 +128,26 @@ class PosteriorEncoder(nn.Module):
             logs: logσ
             x_mask: [B, 1, T] 有效长度 mask
         """
+        # 生成一个形状 [B, 1, T] 的 mask，标出哪些是有效部分
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
-        x = self.pre(x) * x_mask  # 初步卷积
-        x = self.enc(x, x_mask, g=g)  # Wavenet 编码
+        x = self.pre(x) * x_mask  # 通道投影
+        x = self.enc(x, x_mask, g=g)  # 经过 WaveNet 残差网络进行建模
 
+        # stats：输出 μ 和 logσ 的拼接结果
         stats = self.proj(x) * x_mask  # [B, 2*out_channels, T]
+        # split：拆成两部分
         m, logs = torch.split(stats, self.out_channels, dim=1)
 
         # 采样 z ∼ N(μ, σ²)
         z = (m + torch.randn_like(m) * torch.exp(logs)) * x_mask
 
+        # 返回这四项，用于后续 loss 计算或 flow 解码
         return z, m, logs, x_mask
 
     def remove_weight_norm(self):
-        """推理前移除权重归一化"""
+        """
+        VITS 训练时使用了 weight_norm 加速收敛，但推理时需要移除
+        推理前做网络瘦身
+        """
         self.enc.remove_weight_norm()
