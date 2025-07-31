@@ -1,22 +1,31 @@
+import torch
+from torch import nn
+import math
+from modules.attention import Encoder
+
 class TextEncoder(nn.Module):
+    """
+    把离散的音素序列 + 可选的 BERT embedding，转化为连续的特征向量（μ, logσ），供后续 flow 和 posterior encoder 使用
+    """
     def __init__(
-        self,
-        n_vocab,          # 词表大小（音素表）
-        out_channels,     # 输出通道数，通常等于 posterior encoder 输出的维度
-        hidden_channels,  # transformer 的隐层维度
-        filter_channels,  # transformer 前馈层的维度
-        n_heads,          # 多头注意力数量
-        n_layers,         # transformer 层数
-        kernel_size,      # 前馈卷积核大小
-        p_dropout         # dropout 概率
+            self,
+            n_vocab,  # 词表大小（音素数量）
+            out_channels,  # 输出通道数，等于 VAE 的 z 维度（例如 192）
+            hidden_channels,  # Transformer 中间隐层维度（通常等于 embedding dim）
+            filter_channels,  # 前馈层的维度（通常比 hidden 大，例如 4x）
+            n_heads,  # 多头注意力的头数（通常为 2~8）
+            n_layers,  # Transformer 层数（如 6）
+            kernel_size,  # FFN 中卷积核大小（如 5）
+            p_dropout  # dropout 概率（如 0.1）
     ):
         super().__init__()
         self.n_vocab = n_vocab
         self.out_channels = out_channels
         self.hidden_channels = hidden_channels
 
-        # 音素嵌入层（用于离散 token）
+        # 嵌入层：将离散 token（音素 ID）转为向量
         self.emb = nn.Embedding(n_vocab, hidden_channels)
+        # 将嵌入矩阵 self.emb.weight 按照均值为 0，标准差为 1 / sqrt(hidden_channels) 的正态分布进行初始化
         nn.init.normal_(self.emb.weight, 0.0, hidden_channels ** -0.5)
 
         # BERT 情感向量线性映射层（256 → hidden_channels）
@@ -27,28 +36,29 @@ class TextEncoder(nn.Module):
             hidden_channels, filter_channels, n_heads, n_layers, kernel_size, p_dropout
         )
 
-        # 输出投影：预测 μ 和 logσ
+        # 投影层：从上下文特征 → 生成 μ 与 logσ
         self.proj = nn.Conv1d(hidden_channels, out_channels * 2, kernel_size=1)
 
     def forward(self, x, x_lengths, bert):
         """
-        Args:
-            x: [B, T]，音素索引序列（int64）
-            x_lengths: [B]，每个样本的有效长度
-            bert: [B, T, 256]，BERT 情感 embedding（可选）
-        Returns:
-            x: 编码后的上下文表示
-            m: μ（变分编码器均值）
-            logs: logσ（变分编码器对数方差）
-            x_mask: 掩码张量 [B, 1, T]
+        x: [B, T]，音素索引序列（int64）
+        x_lengths: 有效长度，排除 padding 部分
+        bert: [B, T, 256]，BERT 情感 embedding（可选）
+
+        return:
+        x: 编码后的上下文表示
+        m: μ（变分编码器均值）
+        logs: logσ（变分编码器对数方差）
+        x_mask: 掩码张量 [B, 1, T]
         """
 
-        # 嵌入 → 乘以 √d 作为缩放
+        # 查嵌入表，并缩放，保持 variance 稳定
         x = self.emb(x) * math.sqrt(self.hidden_channels)  # [B, T, H]
 
-        # 若启用 BERT，叠加其特征向量
+        # 叠加 BERT 向量（如果有），提供语义上下文
         if bert is not None:
             b = self.emb_bert(bert)  # [B, T, H]
+            # 与 phoneme embedding 相加，增强音素
             x = x + b
 
         # 转置维度：用于后续 conv/attention
@@ -57,11 +67,12 @@ class TextEncoder(nn.Module):
         # 构建掩码：用于 attention、conv 掩蔽 padding 部分
         x_mask = torch.unsqueeze(commons.sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)
 
-        # 编码器处理
+        # Transformer 编码
         x = self.encoder(x * x_mask, x_mask)  # [B, H, T]
 
         # 输出 μ 和 logσ
         stats = self.proj(x) * x_mask         # [B, 2H, T]
+        # 切成两半：前一半是 μ，后一半是 logσ
         m, logs = torch.split(stats, self.out_channels, dim=1)  # 各 [B, H, T]
 
         return x, m, logs, x_mask
