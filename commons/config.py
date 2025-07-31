@@ -1,4 +1,4 @@
-# utils/config.py
+# commons/config.py
 
 from omegaconf import OmegaConf
 from pathlib import Path

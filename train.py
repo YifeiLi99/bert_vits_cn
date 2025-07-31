@@ -1,7 +1,7 @@
 import os
 import torch
 import torch.multiprocessing as mp
-from utils.config import get_hparams
+from commons.config import get_hparams
 from engine import train_one_epoch, evaluate, train_and_evaluate
 
 # ======================= 主函数 ==========================

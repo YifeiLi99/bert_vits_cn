@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models import modules  # 假设你有 LayerNorm 定义在 utils/modules.py 中
+from models import modules  # 假设你有 LayerNorm 定义在 commons/modules.py 中
 
 
 class DurationPredictor(nn.Module):
