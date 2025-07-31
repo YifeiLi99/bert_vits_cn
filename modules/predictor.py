@@ -1,57 +1,69 @@
 import torch
 import torch.nn as nn
-from models import modules  # 假设你有 LayerNorm 定义在 commons/modules.py 中
-
+import norm
 
 class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):
         """
-        预测每个输入 token 的持续时间（帧数）
+        持续时间预测模块（log-duration）
+        输入为 TextEncoder 的输出，预测每个时间步的持续时长（以帧数计）
 
-        in_channels (int): 输入通道数（通常是 TextEncoder 输出 dim）
-        filter_channels (int): 卷积层中间维度
-        kernel_size (int): 卷积核大小
-        p_dropout (float): dropout 概率
-        gin_channels (int): 条件信息通道（如情感 embedding），可选
+        Args:
+            in_channels: 输入通道数，通常是 TextEncoder 的输出维度
+            filter_channels: 卷积层中间维度
+            kernel_size: 卷积核大小（通常为 3 或 5）
+            p_dropout: dropout 概率（防止过拟合）
+            gin_channels: 可选条件通道（如情绪 embedding 的维度）
         """
         super().__init__()
 
         self.drop = nn.Dropout(p_dropout)
 
+        # 第一层 1D 卷积 + LayerNorm
         self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.norm_1 = modules.LayerNorm(filter_channels)
+        self.norm_1 = norm.LayerNorm(filter_channels)
 
+        # 第二层 1D 卷积 + LayerNorm
         self.conv_2 = nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2)
-        self.norm_2 = modules.LayerNorm(filter_channels)
+        self.norm_2 = norm.LayerNorm(filter_channels)
 
-        self.proj = nn.Conv1d(filter_channels, 1, kernel_size=1)  # 输出一个标量，即 log-duration
+        # 投影层，输出 1 个通道（表示 log-duration）
+        self.proj = nn.Conv1d(filter_channels, 1, kernel_size=1)
 
+        # 如果启用条件输入（如情感），加入 1x1 conv 以适配维度并加和到主输入
         if gin_channels != 0:
-            # 如果需要条件信息（如情感 embedding），映射到输入维度后加和
             self.cond = nn.Conv1d(gin_channels, in_channels, kernel_size=1)
 
     def forward(self, x, x_mask, g=None):
         """
-        x (Tensor): shape [B, C, T]，TextEncoder 的输出
-        x_mask (Tensor): shape [B, 1, T]，输入掩码
-        g (Tensor, optional): 条件向量（如情绪 embedding）
+        前向传播
 
-        Returns: Tensor: log-duration，shape [B, 1, T]
+        Args:
+            x: 输入序列，[B, C, T]，来自 TextEncoder
+            x_mask: 输入掩码，[B, 1, T]，标记有效 token
+            g: 条件向量（可选），如情感 embedding，[B, gin_channels, T]
+
+        Returns:
+            log_durations: [B, 1, T]，预测每个 token 的对数持续时长
         """
-        x = x.detach()  # 避免梯度流入
+        x = x.detach()  # 阻断梯度，防止影响 TextEncoder（因为这是辅助模块）
         if g is not None:
             g = g.detach()
-            x = x + self.cond(g)
+            x = x + self.cond(g)  # 融合条件向量（如情感信息）
 
-        x = self.conv_1(x * x_mask)
+        # 第一层卷积 + 激活 + LayerNorm + dropout
+        x = self.conv_1(x * x_mask)  # 注意加了 mask，只对有效 token 做卷积
         x = torch.relu(x)
         x = self.norm_1(x)
         x = self.drop(x)
 
+        # 第二层卷积 + 激活 + LayerNorm + dropout
         x = self.conv_2(x * x_mask)
         x = torch.relu(x)
         x = self.norm_2(x)
         x = self.drop(x)
 
+        # 输出 log-duration（经过线性变换）
         x = self.proj(x * x_mask)
-        return x * x_mask  # 输出时也乘上 mask，保持 padding 对齐
+
+        return x * x_mask  # 输出时保持 mask，确保 padding 不被污染
