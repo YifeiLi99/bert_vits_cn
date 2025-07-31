@@ -1,3 +1,6 @@
+
+
+
 class LayerNorm(nn.Module):
     """
     自定义 Layer Normalization 模块，适配 (B, C, T) 格式。
