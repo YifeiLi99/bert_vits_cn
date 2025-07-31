@@ -1,0 +1,43 @@
+# ========== Python 常规 ==========
+__pycache__/
+*.py[cod]
+*.so
+*.pyd
+*.pyo
+*.log
+
+# ========== 虚拟环境 ==========
+env/
+venv/
+.venv/
+
+# ========== Jupyter Notebook ==========
+.ipynb_checkpoints/
+
+# ========== 数据与模型 ==========
+*.pth
+*.pt
+*.ckpt
+*.npz
+*.npy
+
+# ========== 日志与输出 ==========
+logs/
+runs/
+*.log
+*.txt
+
+# ========== 对齐工具或缓存 ==========
+alignment/
+monotonic_align/core.*
+monotonic_align/*.so
+monotonic_align/build/
+monotonic_align/__pycache__/
+
+# ========== IDE 配置文件 ==========
+.vscode/
+.idea/
+
+# ========== 其他 ==========
+.DS_Store
+*.swp
