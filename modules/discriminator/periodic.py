@@ -11,7 +11,6 @@ class DiscriminatorP(nn.Module):
     用于捕捉语音中周期性结构（如基频）的特征。
     每个实例专注于一个给定的周期 P，将输入波形按周期展开为二维形式进行卷积判别。
     """
-
     def __init__(self, period, kernel_size=5, stride=3, use_spectral_norm=False):
         """
         Args:
@@ -28,6 +27,13 @@ class DiscriminatorP(nn.Module):
         norm_f = weight_norm if not use_spectral_norm else spectral_norm
 
         # 构造5层2D卷积网络（仅 time 方向滑动）
+        """
+        每一层是一个 2D 卷积。
+        kernel_size=(k,1) 说明只在时间维度做滑动，不跨越周期维度。
+        stride=(s,1) 同样表示只在时间轴做步进。
+        特征图维度从 1 → 32 → 128 → 512 → 1024 → 1024，逐渐加深表示能力。
+        目的是挖掘跨周期的周期性特征（pitch, harmonics）
+        """
         self.convs = nn.ModuleList([
             norm_f(nn.Conv2d(1, 32, (kernel_size, 1), (stride, 1), padding=(get_padding(kernel_size, 1), 0))),
             norm_f(nn.Conv2d(32, 128, (kernel_size, 1), (stride, 1), padding=(get_padding(kernel_size, 1), 0))),
@@ -55,20 +61,24 @@ class DiscriminatorP(nn.Module):
         b, c, t = x.shape
         if t % self.period != 0:
             n_pad = self.period - (t % self.period)
+            # 反射填充不会引入明显的新频率分量，比零填充更自然
             x = F.pad(x, (0, n_pad), mode="reflect")
             t += n_pad
 
-        # 变换为 2D 格式：[B, 1, T // period, period]
+        # reshape 为周期维度的二维格式 ：[B, 1, T//period, period]
+        # 用 2D 卷积提取周期相关特征，把“周期结构”显式建模进网络结构里
         x = x.view(b, c, t // self.period, self.period)
 
         # 多层卷积 + LeakyReLU 激活 + 保存 fmap
         for conv in self.convs:
             x = conv(x)
             x = F.leaky_relu(x, LRELU_SLOPE)
+            # 输出都记录进 fmap 列表中，供后续用于 Feature Matching Loss
             fmap.append(x)
 
         # 最终判别输出层
         x = self.conv_post(x)
+        # 得到一个单通道的“判别热力图”，反映每个位置是否像真实音频
         fmap.append(x)
 
         # 展平输出，得到判别结果（用于 GAN loss）
