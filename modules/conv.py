@@ -1,3 +1,5 @@
+import torch.nn as nn
+
 class ConvReluNorm(nn.Module):
     """
     多层 1D 卷积 + LayerNorm + ReLU + Dropout + 残差连接模块。
