@@ -1,13 +1,18 @@
+import torch
+import torch.nn as nn
+from modules.flow.base import Flip
+from modules.norm import WN
+
 class ResidualCouplingBlock(nn.Module):
     def __init__(
         self,
-        channels,           # 输入通道数
-        hidden_channels,    # 隐藏层通道数
+        channels,           # 输入通道数（通常是 latent z 的通道数）
+        hidden_channels,    # 内部耦合网络的隐藏通道数
         kernel_size,        # 卷积核大小
-        dilation_rate,      # 膨胀系数
-        n_layers,           # Coupling Layer 内部堆叠层数
-        n_flows=4,          # Flow 的总数量（每个 flow = coupling + flip）
-        gin_channels=0      # 条件输入通道数（如情感 embedding）
+        dilation_rate,      # 卷积的膨胀率（决定感受野）
+        n_layers,           # 每个 Coupling Layer 中的网络层数
+        n_flows=4,          # Flow 层的数量，每个 flow = 1个 ResidualCouplingLayer + 1个 Flip
+        gin_channels=0      # 条件输入通道数（如情感 embedding 的通道数）
     ):
         super().__init__()
         self.channels = channels
@@ -20,39 +25,46 @@ class ResidualCouplingBlock(nn.Module):
 
         self.flows = nn.ModuleList()
         for i in range(n_flows):
-            # 每个 flow 包含：Residual Coupling Layer + Flip
+            # 每个 flow 包括两个模块：Residual Coupling + Flip（共两层）
             self.flows.append(
-                modules.ResidualCouplingLayer(
+                ResidualCouplingLayer(
                     channels,
                     hidden_channels,
                     kernel_size,
                     dilation_rate,
                     n_layers,
                     gin_channels=gin_channels,
-                    mean_only=True
+                    mean_only=True  # 表示只预测加性偏移（不缩放）
                 )
             )
-            self.flows.append(modules.Flip())
+            self.flows.append(Flip())  # 添加 Flip，用于打乱顺序，实现两半交替学习
 
     def forward(self, x, x_mask, g=None, reverse=False):
         """
-        Flow 前向/逆向变换
+        进行 Flow 的正向或反向变换。
         Args:
-            x: [B, C, T] 潜在表示
-            x_mask: 掩码
-            g: 可选条件（如情感向量）
-            reverse: 是否逆向（采样）
+            x: [B, C, T]，表示 latent z（或其变换）
+            x_mask: [B, 1, T]，表示有效长度的掩码
+            g: 可选条件向量 [B, gin_channels, T]，如情感 embedding
+            reverse: 是否执行逆变换（通常在 inference 时用）
+        Returns:
+            x: Flow 变换后的输出
         """
         if not reverse:
+            # 正向变换（训练阶段）
             for flow in self.flows:
                 x, _ = flow(x, x_mask, g=g, reverse=False)
         else:
+            # 逆向变换（推理阶段，生成 latent z_p）
             for flow in reversed(self.flows):
                 x = flow(x, x_mask, g=g, reverse=True)
         return x
 
     def remove_weight_norm(self):
-        """移除所有 Coupling Layer 的 weight norm"""
+        """
+        推理前移除 Coupling Layer 中所有的 weight norm（防止不稳定）
+        注意：只处理偶数 index（flow[i * 2]），因为奇数是 Flip，无需操作
+        """
         for i in range(self.n_flows):
             self.flows[i * 2].remove_weight_norm()
 

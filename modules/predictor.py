@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import norm
+from norm import LayerNorm
 
 class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):
@@ -23,12 +23,12 @@ class DurationPredictor(nn.Module):
         # 输入：[B, in_channels, T]（注意是 1D 卷积，时间轴卷积）   输出：[B, filter_channels, T]
         self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
         # LayerNorm 对特征维度归一化（更稳定）
-        self.norm_1 = norm.LayerNorm(filter_channels)
+        self.norm_1 = LayerNorm(filter_channels)
 
         # 输入是第一层的输出，再卷积一次
         self.conv_2 = nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2)
         # 归一化第二层的输出，帮助模型稳定训练
-        self.norm_2 = norm.LayerNorm(filter_channels)
+        self.norm_2 = LayerNorm(filter_channels)
 
         # 用一个 1×1 卷积把通道数压缩成 1，表示每个位置的 对数持续时间   输出维度是 [B, 1, T]
         self.proj = nn.Conv1d(filter_channels, 1, kernel_size=1)

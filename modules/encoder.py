@@ -3,7 +3,7 @@ from torch import nn
 import math
 import attentions
 import commons.commons as commons
-import norm
+from norm import WN
 
 class TextEncoder(nn.Module):
     """
@@ -104,7 +104,7 @@ class PosteriorEncoder(nn.Module):
         self.pre = nn.Conv1d(in_channels, hidden_channels, kernel_size=1)
 
         # Wavenet 样式的残差卷积网络（来自 Glow/VITS 中 WN）
-        self.enc = norm.WN(
+        self.enc = WN(
             hidden_channels,
             kernel_size,
             dilation_rate,
