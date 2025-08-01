@@ -1,4 +1,6 @@
 import torch.nn as nn
+from modules.norm import LayerNorm
+import torch.nn.functional as F
 
 class ConvReluNorm(nn.Module):
     """
