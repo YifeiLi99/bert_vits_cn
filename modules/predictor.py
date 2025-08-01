@@ -17,17 +17,20 @@ class DurationPredictor(nn.Module):
         """
         super().__init__()
 
+        # 随机将部分神经元置为 0，防止过拟合
         self.drop = nn.Dropout(p_dropout)
 
-        # 第一层 1D 卷积 + LayerNorm
+        # 输入：[B, in_channels, T]（注意是 1D 卷积，时间轴卷积）   输出：[B, filter_channels, T]
         self.conv_1 = nn.Conv1d(in_channels, filter_channels, kernel_size, padding=kernel_size // 2)
+        # LayerNorm 对特征维度归一化（更稳定）
         self.norm_1 = norm.LayerNorm(filter_channels)
 
-        # 第二层 1D 卷积 + LayerNorm
+        # 输入是第一层的输出，再卷积一次
         self.conv_2 = nn.Conv1d(filter_channels, filter_channels, kernel_size, padding=kernel_size // 2)
+        # 归一化第二层的输出，帮助模型稳定训练
         self.norm_2 = norm.LayerNorm(filter_channels)
 
-        # 投影层，输出 1 个通道（表示 log-duration）
+        # 用一个 1×1 卷积把通道数压缩成 1，表示每个位置的 对数持续时间   输出维度是 [B, 1, T]
         self.proj = nn.Conv1d(filter_channels, 1, kernel_size=1)
 
         # 如果启用条件输入（如情感），加入 1x1 conv 以适配维度并加和到主输入
@@ -46,10 +49,14 @@ class DurationPredictor(nn.Module):
         Returns:
             log_durations: [B, 1, T]，预测每个 token 的对数持续时长
         """
-        x = x.detach()  # 阻断梯度，防止影响 TextEncoder（因为这是辅助模块）
+        # 不希望对齐误差影响到 TextEncoder，这里切断反向传播路径
+        x = x.detach()
+        # 如果有条件向量，加入主输入
         if g is not None:
+            # 避免梯度误传
             g = g.detach()
-            x = x + self.cond(g)  # 融合条件向量（如情感信息）
+            # 把条件向量 g（如情感）通过线性映射变换维度后加到 x 上
+            x = x + self.cond(g)
 
         # 第一层卷积 + 激活 + LayerNorm + dropout
         x = self.conv_1(x * x_mask)  # 注意加了 mask，只对有效 token 做卷积
@@ -64,6 +71,7 @@ class DurationPredictor(nn.Module):
         x = self.drop(x)
 
         # 输出 log-duration（经过线性变换）
+        # 得到最终输出 [B, 1, T]，每个 token 的 log-duration
         x = self.proj(x * x_mask)
 
         return x * x_mask  # 输出时保持 mask，确保 padding 不被污染
