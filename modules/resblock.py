@@ -6,7 +6,6 @@ from torch.nn import functional as F
 from commons.commons import get_padding, init_weights
 LRELU_SLOPE = 0.1
 
-
 class ResBlock1(torch.nn.Module):
     def __init__(self, channels, kernel_size=3, dilation=(1, 3, 5)):
         """
