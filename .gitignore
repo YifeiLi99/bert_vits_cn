@@ -28,7 +28,7 @@ runs/
 
 # ========== 对齐工具或缓存 ==========
 alignment/
-monotonic_align/core.*
+monotonic_align/core.c
 monotonic_align/*.so
 monotonic_align/build/
 monotonic_align/__pycache__/
