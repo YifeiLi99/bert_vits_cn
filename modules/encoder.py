@@ -2,7 +2,7 @@ import torch
 from torch import nn
 import math
 import attentions
-import commons.commons as commons
+import commons as commons
 from norm import WN
 
 class TextEncoder(nn.Module):

@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn import Conv1d
 from torch.nn.utils import weight_norm, remove_weight_norm
 from torch.nn import functional as F
-from commons.commons import get_padding, init_weights
+from commons import get_padding, init_weights
 LRELU_SLOPE = 0.1
 
 class ResBlock1(torch.nn.Module):

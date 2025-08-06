@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import weight_norm, remove_weight_norm
 from modules.resblock import ResBlock1, ResBlock2, LRELU_SLOPE
-from commons.commons import init_weights
+from commons import init_weights
 
 class Generator(nn.Module):
     """

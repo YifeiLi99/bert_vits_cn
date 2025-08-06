@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from modules.resblock import LRELU_SLOPE
-from commons.commons import get_padding
+from commons import get_padding
 from torch.nn.utils import weight_norm, spectral_norm
 
 class DiscriminatorP(nn.Module):

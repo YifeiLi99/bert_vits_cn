@@ -1,7 +1,7 @@
 import os
 import torch
 import torch.multiprocessing as mp
-from utils.config_utils import  get_hparams
+from my_utils.config_utils import  get_hparams
 
 # ======================= 主函数 ==========================
 def main():

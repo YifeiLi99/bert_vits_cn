@@ -1,14 +1,11 @@
 import torch
 import torch.nn.functional as F
 import tqdm
-import commons.commons as commons
-
-
-
-
-
-
-
+import commons
+from my_utils import vis_utils,log_utils,checkpoint_utils,mel_utils
+from losses import discriminator_loss,feature_loss,generator_loss,kl_loss
+from torch.cuda.amp import autocast
+from pathlib import Path
 
 # ========================= 单轮训练模块 =================================
 def train_one_epoch(
@@ -49,10 +46,10 @@ def train_one_epoch(
             y_hat, l_length, attn, ids_slice, x_mask, z_mask, \
             (z, z_p, z_r, m_p, logs_p, m_q, logs_q) = net_g(x, x_lengths, bert, spec, spec_lengths)
 
-            mel = spec_to_mel_torch(spec, hps.data.filter_length, hps.data.n_mel_channels,
+            mel = mel_utils.spec_to_mel_torch(spec, hps.data.filter_length, hps.data.n_mel_channels,
                                     hps.data.sampling_rate, hps.data.mel_fmin, hps.data.mel_fmax)
             y_mel = commons.slice_segments(mel, ids_slice, hps.train.segment_size // hps.data.hop_length)
-            y_hat_mel = mel_spectrogram_torch(y_hat.squeeze(1), hps.data.filter_length, hps.data.n_mel_channels,
+            y_hat_mel = mel_utils.mel_spectrogram_torch(y_hat.squeeze(1), hps.data.filter_length, hps.data.n_mel_channels,
                                               hps.data.sampling_rate, hps.data.hop_length, hps.data.win_length,
                                               hps.data.mel_fmin, hps.data.mel_fmax)
             y = commons.slice_segments(y, ids_slice * hps.data.hop_length, hps.train.segment_size)
@@ -116,14 +113,14 @@ def train_one_epoch(
             }
 
             image_dict = {
-                "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-                "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
-                "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                "all/attn": utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy()),
+                "slice/mel_org": vis_utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+                "slice/mel_gen": vis_utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+                "all/mel": vis_utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+                "all/attn": vis_utils.plot_alignment_to_numpy(attn[0, 0].data.cpu().numpy()),
             }
 
-            utils.summarize(writer=writer, global_step=global_step,
-                            images=image_dict, scalars=scalar_dict)
+            log_utils.summarize(writer=writer, global_step=global_step,
+                               images=image_dict, scalars=scalar_dict)
 
         global_step += 1
 
@@ -157,7 +154,7 @@ def evaluate(hps, generator, eval_loader, writer_eval, device):
         y_hat, attn, mask, *_ = generator.module.infer(x, x_lengths, bert, max_len=1000)
         y_hat_lengths = mask.sum([1, 2]).long() * hps.data.hop_length
 
-        gt_mel = spec_to_mel_torch(
+        gt_mel = mel_utils.spec_to_mel_torch(
             spec,
             hps.data.filter_length,
             hps.data.n_mel_channels,
@@ -165,7 +162,7 @@ def evaluate(hps, generator, eval_loader, writer_eval, device):
             hps.data.mel_fmin,
             hps.data.mel_fmax,
         )
-        pred_mel = mel_spectrogram_torch(
+        pred_mel = mel_utils.mel_spectrogram_torch(
             y_hat.squeeze(1).float(),
             hps.data.filter_length,
             hps.data.n_mel_channels,
@@ -177,7 +174,7 @@ def evaluate(hps, generator, eval_loader, writer_eval, device):
         )
 
     image_dict = {
-        f"gen/mel_{global_step}": utils.plot_spectrogram_to_numpy(
+        f"gen/mel_{global_step}": vis_utils.plot_spectrogram_to_numpy(
             pred_mel[0].cpu().numpy()
         )
     }
@@ -186,10 +183,10 @@ def evaluate(hps, generator, eval_loader, writer_eval, device):
     }
 
     if global_step == 0:
-        image_dict["gt/mel"] = utils.plot_spectrogram_to_numpy(gt_mel[0].cpu().numpy())
+        image_dict["gt/mel"] = vis_utils.plot_spectrogram_to_numpy(gt_mel[0].cpu().numpy())
         audio_dict["gt/audio"] = y[0, :, : y_lengths[0]]
 
-    utils.summarize(
+    log_utils.summarize(
         writer=writer_eval,
         global_step=global_step,
         images=image_dict,
@@ -224,15 +221,19 @@ def train_and_evaluate(
 
     # === 可选执行验证 + 模型保存 ===
     if rank == 0 and global_step % hps.train.eval_interval == 0:
-        evaluate(hps, net_g, eval_loader, writer_eval)
-        utils.save_checkpoint(
-            net_g, optim_g, hps.train.learning_rate, epoch,
-            os.path.join(hps.model_dir, f"G_{global_step}.pth")
-        )
-        utils.save_checkpoint(
-            net_d, optim_d, hps.train.learning_rate, epoch,
-            os.path.join(hps.model_dir, f"D_{global_step}.pth")
-        )
+        evaluate(hps, net_g, eval_loader, writer_eval, device="cuda")
 
+        # 将 model_dir 变成 Path 对象
+        model_dir = Path(hps.model_dir)
+        # 保存 Generator 权重
+        checkpoint_utils.save_checkpoint(
+            net_g, optim_g, hps.train.learning_rate, epoch,
+            model_dir / f"G_{global_step}.pth"  # ← 用 / 拼接路径
+        )
+        # 保存 Discriminator 权重
+        checkpoint_utils.save_checkpoint(
+            net_d, optim_d, hps.train.learning_rate, epoch,
+            model_dir / f"D_{global_step}.pth"  # ← 用 / 拼接路径
+        )
 
 

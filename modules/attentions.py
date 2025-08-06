@@ -3,7 +3,8 @@ import torch.nn as nn
 from modules.norm import LayerNorm
 import math
 from torch.nn import functional as F
-import commons.commons as commons
+import commons as commons
+
 
 # Encoder模块：基于Transformer结构的多层堆叠编码器
 # 输入：[B, H, T] 特征

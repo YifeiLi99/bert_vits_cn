@@ -5,7 +5,7 @@ from modules.encoder import TextEncoder, PosteriorEncoder
 from modules.decoder import Generator
 from modules.predictor import DurationPredictor
 from modules.flow.coupling import ResidualCouplingBlock
-from commons.commons import rand_slice_segments, sequence_mask, generate_path
+from commons import rand_slice_segments, sequence_mask, generate_path
 import monotonic_align
 
 class SynthesizerTrn(nn.Module):
