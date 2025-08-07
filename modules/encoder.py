@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 import math
-import attentions
+from modules import attentions
 import commons as commons
-from norm import WN
+from modules.norm import WN
 
 class TextEncoder(nn.Module):
     """

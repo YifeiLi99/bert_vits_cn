@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from norm import LayerNorm
+from modules.norm import LayerNorm
 
 class DurationPredictor(nn.Module):
     def __init__(self, in_channels, filter_channels, kernel_size, p_dropout, gin_channels=0):

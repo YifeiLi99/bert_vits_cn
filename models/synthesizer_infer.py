@@ -1,3 +1,11 @@
+import torch
+import torch.nn as nn
+from modules.encoder import TextEncoder
+from modules.decoder import Generator
+from modules.predictor import DurationPredictor
+from modules.flow.coupling import ResidualCouplingBlock
+from commons import sequence_mask, generate_path
+
 class SynthesizerEval(nn.Module):
     """
     Synthesizer for Training
@@ -92,11 +100,11 @@ class SynthesizerEval(nn.Module):
         w = torch.exp(logw) * x_mask * length_scale
         w_ceil = torch.ceil(w + 0.35)
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(
             x_mask.dtype
         )
         attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
-        attn = commons.generate_path(w_ceil, attn_mask)
+        attn = generate_path(w_ceil, attn_mask)
 
         m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(
             1, 2
@@ -123,11 +131,11 @@ class SynthesizerEval(nn.Module):
         w_ceil = torch.ceil(w + 0.35)
         w_ceil = w_ceil * pause_mask + pause_value
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(
             x_mask.dtype
         )
         attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
-        attn = commons.generate_path(w_ceil, attn_mask)
+        attn = generate_path(w_ceil, attn_mask)
 
         m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(
             1, 2
@@ -156,11 +164,11 @@ class SynthesizerEval(nn.Module):
         w = torch.exp(logw) * x_mask * length_scale
         w_ceil = torch.ceil(w + 0.35)
         y_lengths = torch.clamp_min(torch.sum(w_ceil, [1, 2]), 1).long()
-        y_mask = torch.unsqueeze(commons.sequence_mask(y_lengths, None), 1).to(
+        y_mask = torch.unsqueeze(sequence_mask(y_lengths, None), 1).to(
             x_mask.dtype
         )
         attn_mask = torch.unsqueeze(x_mask, 2) * torch.unsqueeze(y_mask, -1)
-        attn = commons.generate_path(w_ceil, attn_mask)
+        attn = generate_path(w_ceil, attn_mask)
 
         m_p = torch.matmul(attn.squeeze(1), m_p.transpose(1, 2)).transpose(
             1, 2
